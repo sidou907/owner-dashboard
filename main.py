@@ -1,4 +1,5 @@
 import flet as ft
+import os
 from fiche import get_connection
 
 def main(page: ft.Page):
@@ -116,5 +117,5 @@ def main(page: ft.Page):
 
     page.add(header, cards_column)
     load_data()
-
-ft.app(target=main)
+port = int(os.environ.get("PORT", 8080))
+ft.app(target=main, host="0.0.0.0", port=port, view=ft.AppView.WEB_BROWSER)
