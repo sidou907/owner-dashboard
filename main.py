@@ -28,10 +28,12 @@ def main(page: ft.Page):
         try:
             conn = get_connection()
             cur = conn.cursor()
+            # 1. التعديل الأول: جلب بيانات الثني من قاعدة البيانات
             cur.execute("""
                 SELECT item_id, customer_name, deadline, designation, quantity, 
                        COALESCE(progress_cnc, 0), COALESCE(progress_welding, 0), 
-                       COALESCE(progress_painting, 0), COALESCE(progress_packaging, 0)
+                       COALESCE(progress_painting, 0), COALESCE(progress_packaging, 0),
+                       COALESCE(progress_lamellas, 0), COALESCE(progress_profiles, 0)
                 FROM order_items 
                 ORDER BY item_id DESC
             """)
@@ -40,13 +42,14 @@ def main(page: ft.Page):
             conn.close()
 
             for row in rows:
-                item_id, cust_name, deadline, desig, qty, p_cnc, p_weld, p_paint, p_pack = row
+                # 2. التعديل الثاني: استقبال البيانات الجديدة في متغيرات
+                item_id, cust_name, deadline, desig, qty, p_cnc, p_weld, p_paint, p_pack, p_lamellas, p_profiles = row
                 
                 card = ft.Container(
-                    bgcolor="white",  # التعديل هنا
+                    bgcolor="white", 
                     border_radius=15,
                     padding=20,
-                    shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color="black12"), # والتعديل هنا
+                    shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color="black12"), 
                     content=ft.Column(
                         spacing=10,
                         controls=[
@@ -77,26 +80,37 @@ def main(page: ft.Page):
                             ft.Column(
                                 spacing=6,
                                 controls=[
+                                    # 3. التعديل الثالث: جعلنا width=75 للكل ليتسع للكلمات الجديدة، وأضفنا أشرطة الثني
                                     ft.Row([
-                                        ft.Text("CNC", width=55, size=12, weight="bold", color="#374151"), 
+                                        ft.Text("CNC", width=75, size=12, weight="bold", color="#374151"), 
                                         ft.ProgressBar(value=float(p_cnc or 0)/100, color="blue", bgcolor="#E5E7EB", expand=True, height=8), 
                                         ft.Text(f"{int(p_cnc or 0)}%", size=12, width=35, text_align="right", color="blue")
                                     ]),
                                     ft.Row([
-                                        ft.Text("اللحام", width=55, size=12, weight="bold", color="#374151"), 
+                                        ft.Text("اللحام", width=75, size=12, weight="bold", color="#374151"), 
                                         ft.ProgressBar(value=float(p_weld or 0)/100, color="orange", bgcolor="#E5E7EB", expand=True, height=8), 
                                         ft.Text(f"{int(p_weld or 0)}%", size=12, width=35, text_align="right", color="orange")
                                     ]),
                                     ft.Row([
-                                        ft.Text("الصباغة", width=55, size=12, weight="bold", color="#374151"), 
+                                        ft.Text("الصباغة", width=75, size=12, weight="bold", color="#374151"), 
                                         ft.ProgressBar(value=float(p_paint or 0)/100, color="red", bgcolor="#E5E7EB", expand=True, height=8), 
                                         ft.Text(f"{int(p_paint or 0)}%", size=12, width=35, text_align="right", color="red")
                                     ]),
                                     ft.Row([
-                                        ft.Text("التغليف", width=55, size=12, weight="bold", color="#374151"), 
+                                        ft.Text("التغليف", width=75, size=12, weight="bold", color="#374151"), 
                                         ft.ProgressBar(value=float(p_pack or 0)/100, color="green", bgcolor="#E5E7EB", expand=True, height=8), 
                                         ft.Text(f"{int(p_pack or 0)}%", size=12, width=35, text_align="right", color="green")
                                     ]),
+                                    ft.Row([
+                                        ft.Text("ثني اللامات", width=75, size=12, weight="bold", color="#374151"), 
+                                        ft.ProgressBar(value=float(p_lamellas or 0)/100, color="teal", bgcolor="#E5E7EB", expand=True, height=8), 
+                                        ft.Text(f"{int(p_lamellas or 0)}%", size=12, width=35, text_align="right", color="teal")
+                                    ]),
+                                    ft.Row([
+                                        ft.Text("ثني البروفيل", width=75, size=12, weight="bold", color="#374151"), 
+                                        ft.ProgressBar(value=float(p_profiles or 0)/100, color="purple", bgcolor="#E5E7EB", expand=True, height=8), 
+                                        ft.Text(f"{int(p_profiles or 0)}%", size=12, width=35, text_align="right", color="purple")
+                                    ])
                                 ]
                             )
                         ]
@@ -104,10 +118,10 @@ def main(page: ft.Page):
                 )
                 cards_column.controls.append(card)
         except Exception as ex:
-            cards_column.controls.append(ft.Text(f"خطأ: {ex}", color="red", text_align="center"))
-
+            print("Error loading data:", ex)
+            cards_column.controls.append(ft.Text("تعذر جلب البيانات من السيرفر", color="red"))
+            
         page.update()
-
     # زر تحديث نهائي ومضمون
     page.floating_action_button = ft.FloatingActionButton(
         content=ft.Text("تحديث", color="white", weight="bold"),
