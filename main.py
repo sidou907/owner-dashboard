@@ -1,5 +1,4 @@
 import flet as ft
-import os
 from fiche import get_connection
 
 def main(page: ft.Page):
@@ -21,19 +20,20 @@ def main(page: ft.Page):
     )
 
     cards_column = ft.Column(spacing=15, expand=True)
-
     def load_data(e=None):
         cards_column.controls.clear()
         
         try:
             conn = get_connection()
             cur = conn.cursor()
-            # 1. التعديل الأول: جلب بيانات الثني من قاعدة البيانات
             cur.execute("""
                 SELECT item_id, customer_name, deadline, designation, quantity, 
-                       COALESCE(progress_cnc, 0), COALESCE(progress_welding, 0), 
-                       COALESCE(progress_painting, 0), COALESCE(progress_packaging, 0),
-                       COALESCE(progress_lamellas, 0), COALESCE(progress_profiles, 0)
+                       COALESCE(progress_cnc, 0), 
+                       COALESCE(progress_bending, 0), 
+                       COALESCE(progress_bending_profiles, 0),
+                       COALESCE(progress_welding, 0), 
+                       COALESCE(progress_painting, 0), 
+                       COALESCE(progress_packaging, 0)
                 FROM order_items 
                 ORDER BY item_id DESC
             """)
@@ -42,14 +42,63 @@ def main(page: ft.Page):
             conn.close()
 
             for row in rows:
-                # 2. التعديل الثاني: استقبال البيانات الجديدة في متغيرات
-                item_id, cust_name, deadline, desig, qty, p_cnc, p_weld, p_paint, p_pack, p_lamellas, p_profiles = row
+                item_id, cust_name, deadline, desig, qty, p_cnc, p_bend_lames, p_bend_profs, p_weld, p_paint, p_pack = row
                 
+                # 1. التحقق الذكي من اسم الطلبية (تجاهل حالة الأحرف)
+                desig_lower = str(desig).lower()
+                is_grille_lineaire = "grille linéaire" in desig_lower or "grille lineaire" in desig_lower
+
+                # 2. بناء الأشرطة الأساسية التي تظهر دائماً (مثل الـ CNC)
+                progress_controls = [
+                    ft.Row([
+                        ft.Text("CNC", width=70, size=12, weight="bold", color="#374151"), 
+                        ft.ProgressBar(value=float(p_cnc or 0)/100, color="blue", bgcolor="#E5E7EB", expand=True, height=8), 
+                        ft.Text(f"{int(p_cnc or 0)}%", size=12, width=35, text_align="right", color="blue")
+                    ])
+                ]
+
+                # 3. إضافة أشرطة الثني (فقط إذا كانت الطلبية Grille Linéaire)
+                if is_grille_lineaire:
+                    progress_controls.append(
+                        ft.Row([
+                            ft.Text("ثني اللامات", width=70, size=12, weight="bold", color="#374151"), 
+                            ft.ProgressBar(value=float(p_bend_lames or 0)/100, color="purple", bgcolor="#E5E7EB", expand=True, height=8), 
+                            ft.Text(f"{int(p_bend_lames or 0)}%", size=12, width=35, text_align="right", color="purple")
+                        ])
+                    )
+                    progress_controls.append(
+                        ft.Row([
+                            ft.Text("ثني البروفيل", width=70, size=12, weight="bold", color="#374151"), 
+                            ft.ProgressBar(value=float(p_bend_profs or 0)/100, color="purple", bgcolor="#E5E7EB", expand=True, height=8), 
+                            ft.Text(f"{int(p_bend_profs or 0)}%", size=12, width=35, text_align="right", color="purple")
+                        ])
+                    )
+
+                # 4. إضافة باقي الأشرطة الأساسية (اللحام، الصباغة، التغليف)
+                progress_controls.extend([
+                    ft.Row([
+                        ft.Text("اللحام", width=70, size=12, weight="bold", color="#374151"), 
+                        ft.ProgressBar(value=float(p_weld or 0)/100, color="orange", bgcolor="#E5E7EB", expand=True, height=8), 
+                        ft.Text(f"{int(p_weld or 0)}%", size=12, width=35, text_align="right", color="orange")
+                    ]),
+                    ft.Row([
+                        ft.Text("الصباغة", width=70, size=12, weight="bold", color="#374151"), 
+                        ft.ProgressBar(value=float(p_paint or 0)/100, color="red", bgcolor="#E5E7EB", expand=True, height=8), 
+                        ft.Text(f"{int(p_paint or 0)}%", size=12, width=35, text_align="right", color="red")
+                    ]),
+                    ft.Row([
+                        ft.Text("التغليف", width=70, size=12, weight="bold", color="#374151"), 
+                        ft.ProgressBar(value=float(p_pack or 0)/100, color="green", bgcolor="#E5E7EB", expand=True, height=8), 
+                        ft.Text(f"{int(p_pack or 0)}%", size=12, width=35, text_align="right", color="green")
+                    ])
+                ])
+
+                # 5. وضع القائمة الديناميكية داخل البطاقة
                 card = ft.Container(
-                    bgcolor="white", 
+                    bgcolor="white",
                     border_radius=15,
                     padding=20,
-                    shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color="black12"), 
+                    shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color="black12"),
                     content=ft.Column(
                         spacing=10,
                         controls=[
@@ -77,50 +126,18 @@ def main(page: ft.Page):
                             ),
                             ft.Divider(height=1, color="#E5E7EB"),
                             
+                            # تمرير القائمة الديناميكية هنا
                             ft.Column(
                                 spacing=6,
-                                controls=[
-                                    # 3. التعديل الثالث: جعلنا width=75 للكل ليتسع للكلمات الجديدة، وأضفنا أشرطة الثني
-                                    ft.Row([
-                                        ft.Text("CNC", width=75, size=12, weight="bold", color="#374151"), 
-                                        ft.ProgressBar(value=float(p_cnc or 0)/100, color="blue", bgcolor="#E5E7EB", expand=True, height=8), 
-                                        ft.Text(f"{int(p_cnc or 0)}%", size=12, width=35, text_align="right", color="blue")
-                                    ]),
-                                    ft.Row([
-                                        ft.Text("اللحام", width=75, size=12, weight="bold", color="#374151"), 
-                                        ft.ProgressBar(value=float(p_weld or 0)/100, color="orange", bgcolor="#E5E7EB", expand=True, height=8), 
-                                        ft.Text(f"{int(p_weld or 0)}%", size=12, width=35, text_align="right", color="orange")
-                                    ]),
-                                    ft.Row([
-                                        ft.Text("الصباغة", width=75, size=12, weight="bold", color="#374151"), 
-                                        ft.ProgressBar(value=float(p_paint or 0)/100, color="red", bgcolor="#E5E7EB", expand=True, height=8), 
-                                        ft.Text(f"{int(p_paint or 0)}%", size=12, width=35, text_align="right", color="red")
-                                    ]),
-                                    ft.Row([
-                                        ft.Text("التغليف", width=75, size=12, weight="bold", color="#374151"), 
-                                        ft.ProgressBar(value=float(p_pack or 0)/100, color="green", bgcolor="#E5E7EB", expand=True, height=8), 
-                                        ft.Text(f"{int(p_pack or 0)}%", size=12, width=35, text_align="right", color="green")
-                                    ]),
-                                    ft.Row([
-                                        ft.Text("ثني اللامات", width=75, size=12, weight="bold", color="#374151"), 
-                                        ft.ProgressBar(value=float(p_lamellas or 0)/100, color="teal", bgcolor="#E5E7EB", expand=True, height=8), 
-                                        ft.Text(f"{int(p_lamellas or 0)}%", size=12, width=35, text_align="right", color="teal")
-                                    ]),
-                                    ft.Row([
-                                        ft.Text("ثني البروفيل", width=75, size=12, weight="bold", color="#374151"), 
-                                        ft.ProgressBar(value=float(p_profiles or 0)/100, color="purple", bgcolor="#E5E7EB", expand=True, height=8), 
-                                        ft.Text(f"{int(p_profiles or 0)}%", size=12, width=35, text_align="right", color="purple")
-                                    ])
-                                ]
+                                controls=progress_controls
                             )
                         ]
                     )
                 )
                 cards_column.controls.append(card)
         except Exception as ex:
-            print("Error loading data:", ex)
-            cards_column.controls.append(ft.Text("تعذر جلب البيانات من السيرفر", color="red"))
-            
+            cards_column.controls.append(ft.Text(f"خطأ: {ex}", color="red", text_align="center"))
+
         page.update()
     # زر تحديث نهائي ومضمون
     page.floating_action_button = ft.FloatingActionButton(
@@ -131,5 +148,5 @@ def main(page: ft.Page):
 
     page.add(header, cards_column)
     load_data()
-port = int(os.environ.get("PORT", 8080))
-ft.app(target=main, host="0.0.0.0", port=port, view=ft.AppView.WEB_BROWSER)
+
+ft.app(target=main)
