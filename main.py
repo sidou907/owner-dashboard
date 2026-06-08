@@ -1,188 +1,180 @@
-import flet as ft
-import threading
+import streamlit as st
 from datetime import datetime
 from fiche import get_connection
 
-def main(page: ft.Page):
-    page.title = "ISO SYSTEM - لوحة المالك (الإدارة العليا)"
-    page.theme_mode = ft.ThemeMode.LIGHT
-    page.bgcolor = "#f1f5f9" 
-    page.padding = 15 # تقليل الحواف لتناسب الهاتف
-    page.scroll = "adaptive" # تفعيل التمرير للصفحة بالكامل لتناسب الهواتف
+# ================= إعدادات الصفحة الاحترافية =================
+st.set_page_config(
+    page_title="ISO SYSTEM - لوحة المالك",
+    page_icon="👑",
+    layout="centered", # تصميم أنيق في المنتصف
+)
 
-    def show_snack(message, color="red"):
-        snack = ft.SnackBar(content=ft.Text(message, color="white", weight="bold"), bgcolor=color)
-        page.overlay.append(snack)
-        snack.open = True
-        page.update()
-
-    # ================= عناصر الواجهة =================
-    loading_ring = ft.ProgressRing(visible=False, color="#4f46e5", width=20, height=20)
+# تخصيص CSS متقدم لجعل الواجهة باللغة العربية وفائقة الجمال
+st.markdown("""
+<style>
+    /* تغيير الاتجاه والخط */
+    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;700;900&display=swap');
+    html, body, [class*="css"] {
+        font-family: 'Tajawal', sans-serif;
+        direction: rtl;
+        text-align: right;
+    }
     
-    # بطاقات الإحصائيات (KPIs) بحجم خط مناسب للهاتف
-    active_orders_text = ft.Text("0", size=26, weight="bold", color="#1e3a8a")
-    delivered_orders_text = ft.Text("0", size=26, weight="bold", color="#10b981")
-    overdue_orders_text = ft.Text("0", size=26, weight="bold", color="#ef4444")
+    /* إخفاء القوائم العلوية المزعجة */
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
     
-    # قائمة الطلبيات (أصبحت Column لأن الصفحة كلها تقبل التمرير الآن)
-    orders_list = ft.Column(spacing=15)
+    /* تجميل أشرطة التقدم بلون متدرج (Gradient) */
+    .stProgress > div > div > div > div {
+        background-image: linear-gradient(to right, #4f46e5 , #818cf8);
+        border-radius: 10px;
+    }
+</style>
+""", unsafe_allow_html=True)
 
-    def create_kpi_card(title, value_control, emoji_text, bg_color):
-        return ft.Card(
-            elevation=3,
-            width=165, # تحديد عرض ثابت للبطاقة لكي لا تنضغط في الهاتف
-            content=ft.Container(
-                padding=15,
-                bgcolor="white",
-                border_radius=10,
-                content=ft.Column([
-                    ft.Row([
-                        ft.Container(
-                            padding=10,
-                            bgcolor=bg_color,
-                            border_radius=50,
-                            content=ft.Text(emoji_text, size=24) 
-                        ),
-                        value_control
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
-                    ft.Container(height=5),
-                    ft.Text(title, size=13, color="grey", weight="bold")
-                ], alignment=ft.MainAxisAlignment.CENTER, spacing=0)
-            )
-        )
+# ================= العنوان وزر التحديث =================
+col_title, col_btn = st.columns([4, 1])
+with col_title:
+    st.title("👑 لوحة المالك - ISO SYSTEM")
+with col_btn:
+    st.write("") # لضبط المحاذاة
+    if st.button("🔄 تحديث البيانات", use_container_width=True):
+        st.rerun()
 
-    # إضافة خاصية wrap=True لكي تنزل البطاقات لسطر جديد في شاشات الهاتف
-    kpi_row = ft.Row([
-        create_kpi_card("قيد التصنيع", active_orders_text, "⚙️", "#dbeafe"),
-        create_kpi_card("المسلّم (الأرشيف)", delivered_orders_text, "✅", "#d1fae5"),
-        create_kpi_card("المتأخرة ⚠️", overdue_orders_text, "⏳", "#fee2e2"),
-    ], alignment=ft.MainAxisAlignment.CENTER, wrap=True)
+st.markdown("---")
 
-    # ================= جلب البيانات =================
-    def fetch_dashboard_data():
-        orders_list.controls.clear()
-        try:
-            conn = get_connection()
-            cur = conn.cursor()
+# ================= جلب البيانات =================
+def fetch_data():
+    conn = get_connection()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT item_id, customer_name, deadline, designation, quantity, 
+               COALESCE(progress_cnc, 0), 
+               COALESCE(progress_bending, 0), 
+               COALESCE(progress_bending_profiles, 0), 
+               COALESCE(progress_welding, 0), 
+               COALESCE(progress_painting, 0), 
+               COALESCE(progress_packaging, 0),
+               is_delivered
+        FROM order_items 
+        ORDER BY item_id DESC
+    """)
+    rows = cur.fetchall()
+    cur.close()
+    conn.close()
+    return rows
+
+try:
+    rows = fetch_data()
+    active_orders = []
+    delivered_count = 0
+    
+    for row in rows:
+        if row[11] == True:
+            delivered_count += 1
+        else:
+            active_orders.append(row)
             
-            cur.execute("SELECT COUNT(*) FROM order_items WHERE is_delivered = FALSE OR is_delivered IS NULL")
-            active_count = cur.fetchone()[0]
+    active_count = len(active_orders)
+    
+    # الحسابات الذكية
+    today = datetime.now()
+    overdue_count = new_count = in_progress_count = ready_count = 0
+
+    for row in active_orders:
+        item_id, cust, dead_str, desig, qty, p_cnc, p_bend_lames, p_bend_profs, p_weld, p_paint, p_pack, is_deliv = row
+        
+        if dead_str and dead_str != "غير محدد":
+            try:
+                if (datetime.strptime(str(dead_str), "%Y-%m-%d") - today).days < 0:
+                    overdue_count += 1
+            except: pass
+
+        total_prog = float(p_cnc) + float(p_bend_lames) + float(p_weld) + float(p_paint)
+        if float(p_pack) >= 100:
+            ready_count += 1
+        elif total_prog > 0:
+            in_progress_count += 1
+        else:
+            new_count += 1
+
+    # ================= البطاقات العلوية الذكية (KPIs) =================
+    kpi1, kpi2, kpi3 = st.columns(3)
+    kpi1.metric(label="⚙️ قيد التصنيع", value=active_count, delta=f"{new_count} طلب جديد", delta_color="normal")
+    kpi2.metric(label="✅ أرشيف المسلّم", value=delivered_count)
+    kpi3.metric(label="⚠️ طلبات متأخرة", value=overdue_count, delta="يحتاج تدخلك", delta_color="inverse")
+
+    st.markdown("<br>", unsafe_allow_html=True)
+
+    # ================= تبويبات الصفحات (Tabs) =================
+    tab_quick, tab_detailed = st.tabs(["📱 المتابعة السريعة", "📊 الإدارة التفصيلية (الأقسام)"])
+
+    # ---------------- 1. شاشة المتابعة السريعة ----------------
+    with tab_quick:
+        # إحصائيات سريعة
+        c_n, c_p, c_r = st.columns(3)
+        c_n.info(f"📥 طلب جديد: {new_count}")
+        c_p.warning(f"🛠️ قيد الإنجاز: {in_progress_count}")
+        c_r.success(f"✅ جاهز للتسليم: {ready_count}")
+        
+        st.write("")
+        if not active_orders:
+            st.success("المصنع فارغ، لا توجد طلبات قيد التصنيع!")
+
+        for row in active_orders:
+            item_id, cust, dead_str, desig, qty, p_cnc, p_bend_lames, p_bend_profs, p_weld, p_paint, p_pack, is_deliv = row
+            total_prog = float(p_cnc) + float(p_bend_lames) + float(p_weld) + float(p_paint)
             
-            cur.execute("SELECT COUNT(*) FROM order_items WHERE is_delivered = TRUE")
-            delivered_count = cur.fetchone()[0]
+            if float(p_pack) >= 100:
+                status, hex_c, bg_c = "جاهز للتسليم ✅", "#10b981", "#d1fae5"
+            elif total_prog > 0:
+                status, hex_c, bg_c = "قيد الإنجاز 🛠️", "#f59e0b", "#fef3c7"
+            else:
+                status, hex_c, bg_c = "طلب جديد 📥", "#3b82f6", "#dbeafe"
 
-            cur.execute("""
-                SELECT item_id, customer_name, deadline, designation, quantity, 
-                       progress_cnc, progress_bending, progress_bending_profiles, progress_welding, progress_painting, progress_packaging 
-                FROM order_items 
-                WHERE is_delivered = FALSE OR is_delivered IS NULL
-                ORDER BY item_id DESC
-            """)
-            rows = cur.fetchall()
-            cur.close()
-            conn.close()
+            # تصميم بطاقة فخمة عبر HTML مدمج
+            st.markdown(f"""
+            <div style="padding:20px; border-radius:15px; border-right: 6px solid {hex_c}; background-color: white; box-shadow: 0 4px 15px rgba(0,0,0,0.05); margin-bottom: 15px; border: 1px solid #f1f5f9;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                    <h4 style="margin:0; color:#0f172a; font-weight:900;">#{item_id} | {desig}</h4>
+                    <span style="color:{hex_c}; font-weight:bold; font-size:13px; background-color:{bg_c}; padding:5px 12px; border-radius:20px;">{status}</span>
+                </div>
+                <div style="color:#64748b; font-size:15px; font-weight:bold;">
+                    👤 العميل: <span style="color:#334155;">{cust}</span> &nbsp;&nbsp;|&nbsp;&nbsp; 📦 الكمية: <span style="color:#334155;">{qty}</span> &nbsp;&nbsp;|&nbsp;&nbsp; ⏳ التسليم: <span style="color:#ef4444;">{dead_str or 'غير محدد'}</span>
+                </div>
+            </div>
+            """, unsafe_allow_html=True)
 
-            overdue_count = 0
-            today = datetime.now()
+    # ---------------- 2. شاشة الإدارة التفصيلية ----------------
+    with tab_detailed:
+        for row in active_orders:
+            item_id, cust, dead_str, desig, qty, p_cnc, p_bend_lames, p_bend_profs, p_weld, p_paint, p_pack, is_deliv = row
             
-            active_orders_text.value = str(active_count)
-            delivered_orders_text.value = str(delivered_count)
-
-            if not rows:
-                orders_list.controls.append(
-                    ft.Container(
-                        padding=30, alignment=ft.alignment.center,
-                        content=ft.Text("المصنع فارغ حالياً! 🌟", size=18, color="grey", weight="bold")
-                    )
-                )
-
-            for row in rows:
-                item_id, cust, dead_str, desig, qty, p_cnc, p_bend_lames, p_bend_profs, p_weld, p_paint, p_pack = row
-
-                is_overdue = False
-                if dead_str and dead_str != "غير محدد":
-                    try:
-                        if (datetime.strptime(dead_str, "%Y-%m-%d") - today).days < 0:
-                            is_overdue = True
-                            overdue_count += 1
-                    except: pass
-
-                def create_progress_row(label, value_str, color):
-                    try: val = float(value_str) if value_str else 0.0
-                    except: val = 0.0
-                    return ft.Row([
-                        ft.Text(label, width=80, weight="bold", size=12),
-                        ft.ProgressBar(value=val/100, color=color, expand=True, height=8),
-                        ft.Text(f"{int(val)}%", width=35, text_align="right", color="grey", size=11)
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
-                desig_lower = str(desig).lower()
-                is_grille = "grille" in desig_lower
-
-                card_controls = [
-                    ft.Row([
-                        ft.Text(f"#{item_id} | {desig}", size=16, weight="bold", color="#d97706"),
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True),
-                    ft.Row([
-                        ft.Text(f"الزبون: {cust} | الكمية: {qty}", size=13, weight="bold", color="grey"),
-                        ft.Container(
-                            padding=4, bgcolor="#ef4444" if is_overdue else "#f8fafc", border_radius=5,
-                            content=ft.Text(f"التسليم: {dead_str or 'غير محدد'}", color="white" if is_overdue else "black", size=11, weight="bold")
-                        )
-                    ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True),
-                    ft.Divider(height=10),
-                    create_progress_row("CNC", p_cnc, "blue"),
-                ]
-
-                if is_grille:
-                    card_controls.append(create_progress_row("ثني اللامات", p_bend_lames, "purple"))
-                    card_controls.append(create_progress_row("ثني البروفيل", p_bend_profs, "purple")) 
+            # القوائم المنسدلة الأنيقة
+            with st.expander(f"⚙️ تفاصيل الطلب #{item_id} | {desig}", expanded=False):
+                st.write(f"**العميل:** {cust} | **الكمية:** {qty}")
+                
+                st.write(f"**CNC** ({int(float(p_cnc))}%)")
+                st.progress(int(float(p_cnc)) / 100)
+                
+                if "grille" in str(desig).lower():
+                    st.write(f"**ثني اللامات** ({int(float(p_bend_lames))}%)")
+                    st.progress(int(float(p_bend_lames)) / 100)
+                    st.write(f"**ثني البروفيل** ({int(float(p_bend_profs))}%)")
+                    st.progress(int(float(p_bend_profs)) / 100)
                 else:
-                    card_controls.append(create_progress_row("الثني", p_bend_lames, "purple")) 
+                    st.write(f"**الثني** ({int(float(p_bend_lames))}%)")
+                    st.progress(int(float(p_bend_lames)) / 100)
+                    
+                st.write(f"**اللحام** ({int(float(p_weld))}%)")
+                st.progress(int(float(p_weld)) / 100)
+                
+                st.write(f"**الصباغة** ({int(float(p_paint))}%)")
+                st.progress(int(float(p_paint)) / 100)
+                
+                st.write(f"**التغليف** ({int(float(p_pack))}%)")
+                st.progress(int(float(p_pack)) / 100)
 
-                card_controls.extend([
-                    create_progress_row("اللحام", p_weld, "orange"),
-                    create_progress_row("الصباغة", p_paint, "red"),
-                    create_progress_row("التغليف", p_pack, "green"),
-                    create_progress_row("التسليم", "0", "teal"),
-                ])
-
-                card = ft.Card(
-                    elevation=2,
-                    content=ft.Container(
-                        padding=15, bgcolor="#fee2e2" if is_overdue else "white", border_radius=10,
-                        content=ft.Column(card_controls)
-                    )
-                )
-                orders_list.controls.append(card)
-
-            overdue_orders_text.value = str(overdue_count)
-
-        except Exception as e:
-            show_snack(f"خطأ في الاتصال بقاعدة البيانات: {e}", "red")
-        finally:
-            loading_ring.visible = False
-            page.update()
-
-    def refresh_data(e=None):
-        loading_ring.visible = True
-        page.update()
-        threading.Thread(target=fetch_dashboard_data, daemon=True).start()
-
-    # ================= الهيكل النهائي للصفحة =================
-    page.add(
-        ft.Row([
-            ft.Text("👑 لوحة المالك", size=22, weight="bold", color="#1e293b"),
-            ft.Row([loading_ring, ft.ElevatedButton(content=ft.Text("🔄 تحديث", color="white", weight="bold", size=12), bgcolor="#4f46e5", on_click=refresh_data, height=35)])
-        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, wrap=True),
-        ft.Container(height=5),
-        kpi_row, 
-        ft.Container(height=10),
-        ft.Text("🏭 خطوط الإنتاج الحالية:", size=16, weight="bold", color="#334155"),
-        orders_list 
-    )
-
-    refresh_data()
-
-if __name__ == "__main__":
-    ft.app(target=main)
+except Exception as e:
+    st.error(f"خطأ: {e}")
