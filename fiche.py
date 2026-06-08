@@ -1,11 +1,14 @@
-import psycopg2
-
-# وضعنا رابط Neon كاملاً كما نسخته أنت من الموقع
-NEON_URL = "postgresql://neondb_owner:npg_cXHMGpT80QUt@ep-fragrant-water-alyos8cz.c-3.eu-central-1.aws.neon.tech/neondb?sslmode=require"
+import pg8000.dbapi
 
 def get_connection():
-    # الاتصال المباشر عبر الرابط
-    return psycopg2.connect(NEON_URL)
+    conn = pg8000.dbapi.connect(
+        host="ep-fragrant-water-alyos8cz-pooler.c-3.eu-central-1.aws.neon.tech",
+        database="neondb",
+        user="neondb_owner",
+        password="npg_cXHMGpT80QUt",
+        port=5432
+    )
+    return conn
 
 def create_tables():
     conn = get_connection()
