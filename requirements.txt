@@ -1,2 +1,4 @@
 streamlit
 pg8000
+plotly
+pandas
