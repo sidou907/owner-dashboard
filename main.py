@@ -1,228 +1,148 @@
-import streamlit as st
-import plotly.express as px
-import plotly.graph_objects as go
-import pandas as pd
-from datetime import datetime
+import flet as ft
 from fiche import get_connection
 
-# ================= إعدادات الصفحة (شاشة عريضة) =================
-st.set_page_config(page_title="ISO SYSTEM - المالك", page_icon="👑", layout="wide")
+def main(page: ft.Page):
+    # إعدادات صفحة الهاتف
+    page.title = "لوحة المالك - ISO SYSTEM"
+    page.window_width = 400
+    page.window_height = 700
+    page.bgcolor = "#F3F4F6"
+    page.scroll = "adaptive"
+    page.theme_mode = ft.ThemeMode.LIGHT
 
-# ================= تنسيق CSS متقدم وإصلاح الأيقونات واللغات =================
-st.markdown("""
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800;900&display=swap');
-    
-    /* 1. توجيه الصفحة يمين-يسار */
-    .stApp {
-        direction: rtl;
-    }
-    
-    /* 2. تطبيق الخط العربي بأمان على (النصوص فقط) لحماية أيقونات النظام من الكسر */
-    p, h1, h2, h3, h4, h5, h6, label, div[data-testid="stMetricValue"], .stMarkdown {
-        font-family: 'Tajawal', sans-serif !important;
-    }
-    
-    /* إخفاء القوائم العلوية المزعجة */
-    #MainMenu {visibility: hidden;} header {visibility: hidden;} footer {visibility: hidden;}
-    
-    /* تجميل أشرطة التقدم */
-    .stProgress > div > div > div > div {
-        background-image: linear-gradient(to left, #818cf8, #4f46e5);
-        border-radius: 10px;
-    }
-    
-    /* تجميل التبويبات لتصبح كالأزرار الفخمة */
-    .stTabs [data-baseweb="tab-list"] { gap: 24px; direction: rtl;}
-    .stTabs [data-baseweb="tab"] {
-        height: 50px; white-space: pre-wrap; background-color: transparent;
-        border-radius: 4px 4px 0px 0px; gap: 1px; padding-top: 10px; padding-bottom: 10px;
-        font-size: 18px; font-weight: bold; color: #94a3b8;
-    }
-    .stTabs [aria-selected="true"] { color: #818cf8 !important; background-color: rgba(129, 140, 248, 0.1); border-bottom: 3px solid #818cf8;}
-    
-    /* تجميل القوائم المنسدلة */
-    [data-testid="stExpander"] { 
-        background-color: #111827 !important; 
-        border: 1px solid #1f2937 !important; 
-        border-radius: 10px !important; 
-        margin-bottom: 15px; 
-    }
-    
-    [data-testid="stExpander"] details summary {
-        direction: rtl !important;
-    }
-    
-    [data-testid="stExpander"] details summary p { 
-        font-size: 17px !important; 
-        color: #f8fafc !important; 
-        font-weight: bold !important; 
-    }
-</style>
-""", unsafe_allow_html=True)
+    # محاولة ضبط التوجيه من اليمين لليسار
+    try:
+        page.rtl = True
+    except:
+        pass
 
-# ================= العنوان والتحديث =================
-col1, col2 = st.columns([6, 1])
-with col1:
-    st.markdown('<h1 style="font-weight: 900; color: #f8fafc; margin-bottom: 0;">👑 لوحة القيادة <span style="color: #818cf8;">الاستراتيجية</span></h1>', unsafe_allow_html=True)
-with col2:
-    st.write("")
-    if st.button("🔄 تحديث البيانات", use_container_width=True):
-        st.cache_data.clear()
-        st.rerun()
+    # عنوان التطبيق المضاد للرصاص
+    header = ft.Container(
+        content=ft.Row(
+            controls=[ft.Text("📊 لوحة مراقبة الإنتاج", size=24, weight="bold", color="#1E3A8A")],
+            alignment=ft.MainAxisAlignment.CENTER
+        ),
+        padding=20
+    )
 
-st.divider()
-
-# ================= جلب البيانات =================
-@st.cache_data(ttl=60)
-def fetch_data():
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT item_id, customer_name, deadline, designation, quantity, 
-               COALESCE(progress_cnc, 0), COALESCE(progress_bending, 0), 
-               COALESCE(progress_bending_profiles, 0), COALESCE(progress_welding, 0), 
-               COALESCE(progress_painting, 0), COALESCE(progress_packaging, 0), is_delivered
-        FROM order_items ORDER BY item_id DESC
-    """)
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
-    return rows
-
-try:
-    rows = fetch_data()
-except Exception as e:
-    st.error(f"خطأ في الاتصال بقاعدة البيانات: {e}")
-    st.stop()
-
-active_orders = [r for r in rows if not r[11]]
-delivered_count = sum(1 for r in rows if r[11])
-active_count = len(active_orders)
-
-today = datetime.now()
-overdue_count = new_count = in_progress_count = ready_count = 0
-
-for row in active_orders:
-    dead_str = row[2]
-    if dead_str and dead_str != "غير محدد":
+    cards_column = ft.Column(spacing=15, expand=True)
+    
+    def load_data(e=None):
+        cards_column.controls.clear()
+        
         try:
-            if (datetime.strptime(str(dead_str), "%Y-%m-%d") - today).days < 0:
-                overdue_count += 1
-        except: pass
+            conn = get_connection()
+            cur = conn.cursor()
+            # التعديل الأول: جلب الطلبيات غير المسلمة فقط ليتم إخفاء الطلبية تلقائياً عند تحديثها من تطبيق العمال
+            cur.execute("""
+                SELECT item_id, customer_name, deadline, designation, quantity, 
+                       COALESCE(progress_cnc, 0), 
+                       COALESCE(progress_bending, 0), 
+                       COALESCE(progress_bending_profiles, 0),
+                       COALESCE(progress_welding, 0), 
+                       COALESCE(progress_painting, 0), 
+                       COALESCE(progress_packaging, 0)
+                FROM order_items 
+                WHERE is_delivered = FALSE OR is_delivered IS NULL
+                ORDER BY item_id DESC
+            """)
+            rows = cur.fetchall()
+            cur.close()
+            conn.close()
 
-    total_prog = float(row[5]) + float(row[6]) + float(row[8]) + float(row[9])
-    if float(row[10]) >= 100: ready_count += 1
-    elif total_prog > 0: in_progress_count += 1
-    else: new_count += 1
-
-# ================= 1. المؤشرات السريعة (KPIs) =================
-kpi1, kpi2, kpi3, kpi4 = st.columns(4)
-kpi1.metric("⚙️ قيد التصنيع", active_count, f"{new_count} طلب جديد", delta_color="normal")
-kpi2.metric("✅ جاهز للتسليم", ready_count)
-kpi3.metric("⚠️ متأخرة", overdue_count, "- يحتاج تدخل" if overdue_count > 0 else "", delta_color="inverse")
-kpi4.metric("📦 أرشيف المسلّم", delivered_count)
-
-st.write("")
-
-# ================= 2. التبويبات الفخمة =================
-tab_charts, tab_cards, tab_details = st.tabs(["📊 الرسوم البيانية", "📱 البطاقات السريعة", "⚙️ تفاصيل الإنتاج"])
-
-# --- التبويب الأول: الرسوم البيانية ---
-with tab_charts:
-    col_chart1, col_chart2 = st.columns(2)
-    with col_chart1:
-        st.markdown("<h4 style='text-align: center; color: #cbd5e1; margin-bottom: 20px;'>توزيع حالة المصنع</h4>", unsafe_allow_html=True)
-        labels = ['طلب جديد 📥', 'قيد الإنجاز 🛠️', 'جاهز للتسليم ✅']
-        values = [new_count, in_progress_count, ready_count]
-        colors = ['#3b82f6', '#f59e0b', '#10b981']
-        
-        if sum(values) > 0:
-            fig1 = go.Figure(data=[go.Pie(labels=labels, values=values, hole=.5, marker_colors=colors)])
-            fig1.update_layout(margin=dict(t=0, b=0, l=0, r=0), paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(family="Tajawal", size=15, color="#f8fafc"), legend=dict(orientation="h", yanchor="bottom", y=-0.1, xanchor="center", x=0.5))
-            st.plotly_chart(fig1, use_container_width=True)
-        else:
-            st.info("لا توجد بيانات لعرضها.")
-            
-    with col_chart2:
-        st.markdown("<h4 style='text-align: center; color: #cbd5e1; margin-bottom: 20px;'>أضخم 5 طلبيات قيد التصنيع</h4>", unsafe_allow_html=True)
-        if active_orders:
-            df = pd.DataFrame(active_orders, columns=['id', 'cust', 'dead', 'desig', 'qty', 'c', 'b1', 'b2', 'w', 'p', 'pk', 'del'])
-            df['qty'] = pd.to_numeric(df['qty'], errors='coerce').fillna(0)
-            
-            df['label'] = "طلب #" + df['id'].astype(str)
-            df = df.sort_values(by='qty', ascending=False).head(5)
-            
-            fig2 = px.bar(df, x='label', y='qty', text='qty', color='qty', color_continuous_scale='purples')
-            fig2.update_traces(textposition='outside', textfont=dict(size=14, color="#f8fafc"), marker_line_width=0)
-            fig2.update_layout(margin=dict(t=0, b=0, l=0, r=0), xaxis_title="", yaxis_title="الكمية", paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)", font=dict(family="Tajawal", size=15, color="#f8fafc"), coloraxis_showscale=False)
-            st.plotly_chart(fig2, use_container_width=True)
-        else:
-            st.info("لا توجد بيانات لعرضها.")
-
-# --- التبويب الثاني: البطاقات السريعة ---
-with tab_cards:
-    if not active_orders:
-        st.success("المصنع فارغ، لا توجد طلبات قيد التصنيع!")
-        
-    cols = st.columns(3) 
-    for i, row in enumerate(active_orders):
-        item_id, cust, dead_str, desig, qty = row[0], row[1], row[2], row[3], row[4]
-        total_prog = float(row[5]) + float(row[6]) + float(row[8]) + float(row[9])
-        
-        if float(row[10]) >= 100:
-            status, hex_c, bg_c = "جاهز للتسليم ✅", "#10b981", "rgba(16, 185, 129, 0.05)"
-        elif total_prog > 0:
-            status, hex_c, bg_c = "قيد الإنجاز 🛠️", "#f59e0b", "rgba(245, 158, 11, 0.05)"
-        else:
-            status, hex_c, bg_c = "طلب جديد 📥", "#3b82f6", "rgba(59, 130, 246, 0.05)"
-
-        # حماية الفرنسية من الانعكاس داخل البطاقات باستخدام شفرة Unicode
-        desig_safe = f"\u202A{desig}\u202C"
-
-        with cols[i % 3]:
-            st.markdown(f"""
-            <div style="padding: 20px; border-radius: 12px; border: 1px solid {hex_c}40; border-top: 4px solid {hex_c}; background-color: {bg_c}; margin-bottom: 20px; height: 170px;">
-                <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
-                    <h5 style="margin: 0; color: #f8fafc; font-weight: bold;">#{item_id} | <span style="color:#cbd5e1;">{desig_safe}</span></h5>
-                </div>
-                <div style="color: {hex_c}; font-weight: bold; font-size: 13px; margin-bottom: 12px; background-color: {hex_c}20; display: inline-block; padding: 4px 10px; border-radius: 20px;">{status}</div>
-                <div style="color: #94a3b8; font-size: 13px; line-height: 1.8;">
-                    👤 العميل: <span style="color: white;">{cust}</span><br>
-                    📦 الكمية: <span style="color: white;">{qty}</span> &nbsp;|&nbsp; ⏳ التسليم: <span style="color: #ef4444;">{dead_str or 'غير محدد'}</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-
-# --- التبويب الثالث: تفاصيل الإنتاج ---
-with tab_details:
-    def draw_progress_row(label, val):
-        try: val = min(max(int(float(val)), 0), 100)
-        except: val = 0
-            
-        c_text, c_prog, c_num = st.columns([3, 6, 1])
-        with c_text: st.markdown(f"<p style='color:#cbd5e1; font-weight:bold; margin-top:5px; font-size:15px;'>{label}</p>", unsafe_allow_html=True)
-        with c_prog: st.progress(val / 100)
-        with c_num: st.markdown(f"<p style='color:#818cf8; font-weight:bold; margin-top:5px; text-align:left;'>{val}%</p>", unsafe_allow_html=True)
-
-    for row in active_orders:
-        item_id, desig, p_cnc, p_bend_lames, p_bend_profs, p_weld, p_paint, p_pack = row[0], row[3], row[5], row[6], row[7], row[8], row[9], row[10]
-        
-        # التعديل السحري: استخدام Unicode Isolation \u202A ... \u202C لمنع المتصفح من قلب الكلمات
-        desig_safe = f"\u202A{desig}\u202C"
-        
-        with st.expander(f"🏭 الطلب رقم {item_id} ◀ {desig_safe}", expanded=False):
-            st.markdown("<br>", unsafe_allow_html=True)
-            
-            draw_progress_row("التخريم (CNC)", p_cnc)
-            
-            if "grille" in str(desig).lower():
-                draw_progress_row("ثني اللامات", p_bend_lames)
-                draw_progress_row("ثني البروفيل", p_bend_profs)
-            else:
-                draw_progress_row("عملية الثني", p_bend_lames)
+            for row in rows:
+                item_id, cust_name, deadline, desig, qty, p_cnc, p_bend_lames, p_bend_profs, p_weld, p_paint, p_pack = row
                 
-            draw_progress_row("اللحام والتجميع", p_weld)
-            draw_progress_row("الصباغة (الفرن)", p_paint)
-            draw_progress_row("التغليف النهائي", p_pack)
-            st.markdown("<br>", unsafe_allow_html=True)
+                card = ft.Container(
+                    bgcolor="white",
+                    border_radius=15,
+                    padding=20,
+                    shadow=ft.BoxShadow(spread_radius=1, blur_radius=8, color="black12"),
+                    content=ft.Column(
+                        spacing=10,
+                        controls=[
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text(f"طلب #{item_id}", size=18, weight="bold", color="#D97706"),
+                                    ft.Text(str(cust_name or "بدون اسم"), size=16, weight="bold", color="#1F2937"),
+                                ]
+                            ),
+                            ft.Divider(height=1, color="#E5E7EB"),
+                            
+                            ft.Text(f"📦 {desig}", size=15, weight="w600", color="#374151"),
+                            ft.Row(
+                                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                                controls=[
+                                    ft.Text(f"الكمية: {qty}", size=14, color="#4B5563"),
+                                    ft.Text(
+                                        f"التسليم: {deadline or 'غير محدد'}", 
+                                        size=14, 
+                                        color="red" if deadline else "#4B5563",
+                                        weight="bold" if deadline else "normal"
+                                    ),
+                                ]
+                            ),
+                            ft.Divider(height=1, color="#E5E7EB"),
+                            
+                            ft.Column(
+                                spacing=6,
+                                controls=[
+                                    ft.Row([
+                                        ft.Text("CNC", width=70, size=12, weight="bold", color="#374151"), 
+                                        ft.ProgressBar(value=float(p_cnc or 0)/100, color="blue", bgcolor="#E5E7EB", expand=True, height=8), 
+                                        ft.Text(f"{int(p_cnc or 0)}%", size=12, width=35, text_align="right", color="blue")
+                                    ]),
+                                    ft.Row([
+                                        ft.Text("ثني اللامات", width=70, size=12, weight="bold", color="#374151"), 
+                                        ft.ProgressBar(value=float(p_bend_lames or 0)/100, color="purple", bgcolor="#E5E7EB", expand=True, height=8), 
+                                        ft.Text(f"{int(p_bend_lames or 0)}%", size=12, width=35, text_align="right", color="purple")
+                                    ]),
+                                    ft.Row([
+                                        ft.Text("ثني البروفيل", width=70, size=12, weight="bold", color="#374151"), 
+                                        ft.ProgressBar(value=float(p_bend_profs or 0)/100, color="purple", bgcolor="#E5E7EB", expand=True, height=8), 
+                                        ft.Text(f"{int(p_bend_profs or 0)}%", size=12, width=35, text_align="right", color="purple")
+                                    ]),
+                                    ft.Row([
+                                        ft.Text("اللحام", width=70, size=12, weight="bold", color="#374151"), 
+                                        ft.ProgressBar(value=float(p_weld or 0)/100, color="orange", bgcolor="#E5E7EB", expand=True, height=8), 
+                                        ft.Text(f"{int(p_weld or 0)}%", size=12, width=35, text_align="right", color="orange")
+                                    ]),
+                                    ft.Row([
+                                        ft.Text("الصباغة", width=70, size=12, weight="bold", color="#374151"), 
+                                        ft.ProgressBar(value=float(p_paint or 0)/100, color="red", bgcolor="#E5E7EB", expand=True, height=8), 
+                                        ft.Text(f"{int(p_paint or 0)}%", size=12, width=35, text_align="right", color="red")
+                                    ]),
+                                    ft.Row([
+                                        ft.Text("التغليف", width=70, size=12, weight="bold", color="#374151"), 
+                                        ft.ProgressBar(value=float(p_pack or 0)/100, color="green", bgcolor="#E5E7EB", expand=True, height=8), 
+                                        ft.Text(f"{int(p_pack or 0)}%", size=12, width=35, text_align="right", color="green")
+                                    ]),
+                                    # التعديل الثاني: إضافة قسم التسليم ثابت على 0% للمراقبة فقط وبدون أي أزرار للمالك
+                                    ft.Row([
+                                        ft.Text("التسليم", width=70, size=12, weight="bold", color="#374151"), 
+                                        ft.ProgressBar(value=0.0, color="teal", bgcolor="#E5E7EB", expand=True, height=8), 
+                                        ft.Text("0%", size=12, width=35, text_align="right", color="teal")
+                                    ]),
+                                ]
+                            )
+                        ]
+                    )
+                )
+                cards_column.controls.append(card)
+        except Exception as ex:
+            cards_column.controls.append(ft.Text(f"خطأ: {ex}", color="red", text_align="center"))
+
+        page.update()
+
+    # زر تحديث آمن باستخدام اسم الأيقونة مباشرة لمنع أخطاء إصدارات Flet
+    page.floating_action_button = ft.FloatingActionButton(
+        content=ft.Icon("refresh", color="white"),
+        bgcolor="#1E3A8A",
+        on_click=load_data
+    )
+
+    page.add(header, cards_column)
+    load_data()
+
+ft.app(target=main)
