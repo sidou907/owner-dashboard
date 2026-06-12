@@ -73,6 +73,15 @@ with col2:
 
 st.divider()
 
+# ================= ⚡ شريط الماسح الضوئي (QR Scanner) ⚡ =================
+st.markdown("""
+<div style="background-color: #1e1b4b; padding: 10px; border-radius: 10px; border: 2px dashed #818cf8; text-align: center; margin-bottom: 10px;">
+    <h4 style="color: #818cf8; font-family: 'Tajawal', sans-serif; margin: 0;">📷 ضع مؤشر الكتابة في الأسفل، ثم امسح الكود بجهاز HENEX</h4>
+</div>
+""", unsafe_allow_html=True)
+search_query = st.text_input("إدخال الكود", label_visibility="collapsed", placeholder="انتظار المسح الضوئي...", key="scanner")
+# ========================================================================
+
 # ================= جلب البيانات =================
 @st.cache_data(ttl=60)
 def fetch_data():
@@ -98,6 +107,16 @@ except Exception as e:
 
 # تصفية الطلبيات النشطة تلقائياً
 active_orders = [r for r in rows if not r[12]]
+
+# 🎯 تطبيق فلتر الماسح الضوئي إذا تم قراءة كود
+if search_query:
+    # نبحث عن الكود الممسوح داخل الـ item_id (مثلاً 337 يطابق 337-1 و 337-2)
+    active_orders = [r for r in active_orders if search_query.strip().lower() in str(r[0]).lower()]
+    if len(active_orders) == 0:
+        st.error(f"❌ لم يتم العثور على أي طلبيات غير مسلمة مطابقة لرقم الفاتورة: {search_query}")
+    else:
+        st.success(f"✅ تم العثور على {len(active_orders)} قطعة تابعة للفاتورة: {search_query}")
+
 delivered_count = sum(1 for r in rows if r[12])
 active_count = len(active_orders)
 
@@ -213,7 +232,8 @@ with tab_details:
         # العنوان مع الإيموجي بأمان
         expander_title = f"🏭 الطلب رقم {item_id} ◀ {desig}"
         
-        with st.expander(expander_title, expanded=False):
+        # 💡 الذكاء هنا: إذا قمنا بمسح كود، يتم فتح قائمة التفاصيل تلقائياً لتراها فوراً!
+        with st.expander(expander_title, expanded=bool(search_query)):
             
             st.markdown(f"""
             <div style="background-color: #1e293b; padding: 10px 15px; border-radius: 8px; margin-top: 10px; margin-bottom: 20px; text-align: center; border: 1px dashed #4f46e5;">
